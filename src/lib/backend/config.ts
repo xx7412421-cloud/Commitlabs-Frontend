@@ -307,3 +307,53 @@ export function getBackendConfig(): BackendConfig {
     chainWritesEnabled: env.COMMITLABS_ENABLE_CHAIN_WRITES === "true",
   };
 }
+
+// ─── Supported Assets and Risk Profiles ─────────────────────────────────────
+
+export interface SupportedAsset {
+  code: string;
+  name: string;
+  decimals: number;
+}
+
+export interface RiskProfile {
+  id: string;
+  name: string;
+  description: string;
+  maxLossBps: number;
+}
+
+export interface ParameterBounds {
+  durationDays: { min: number; max: number };
+  amount: { min: number; max: number };
+}
+
+export interface SupportedConfig {
+  assets: SupportedAsset[];
+  riskProfiles: RiskProfile[];
+  bounds: ParameterBounds;
+}
+
+export const PARAMETER_BOUNDS: ParameterBounds = {
+  durationDays: { min: 1, max: 365 },
+  amount: { min: 0.001, max: 1000000 },
+};
+
+export const RISK_PROFILES: RiskProfile[] = [
+  { id: "conservative", name: "Conservative", description: "Strict capital preservation", maxLossBps: 1000 },
+  { id: "balanced", name: "Balanced", description: "Moderate drawdowns allowed", maxLossBps: 5000 },
+  { id: "aggressive", name: "Aggressive", description: "High loss tolerance", maxLossBps: 10000 },
+];
+
+export const SUPPORTED_ASSETS: SupportedAsset[] = [
+  { code: "XLM", name: "Stellar Lumens", decimals: 7 },
+  { code: "USDC", name: "USD Coin", decimals: 7 },
+];
+
+export function getSupportedConfig(): SupportedConfig {
+  return {
+    assets: SUPPORTED_ASSETS,
+    riskProfiles: RISK_PROFILES,
+    bounds: PARAMETER_BOUNDS,
+  };
+}

@@ -1,6 +1,7 @@
 // src/lib/backend/validation.ts
 import { z } from "zod";
 import { StrKey } from "@stellar/stellar-sdk";
+import { PARAMETER_BOUNDS } from "./config";
 
 // ─── Warning types ────────────────────────────────────────────────────────────
 
@@ -235,10 +236,10 @@ export type CommitmentDraftInput = z.infer<typeof commitmentDraftInputSchema>;
 // ─── Warning rules ────────────────────────────────────────────────────────────
 
 const HIGH_RISK_THRESHOLD_BPS = 5000;
-const UNUSUAL_DURATION_MIN_DAYS = 1;
-const UNUSUAL_DURATION_MAX_DAYS = 365;
-const UNUSUAL_AMOUNT_MIN = 0.001;
-const UNUSUAL_AMOUNT_MAX = 1000000;
+const UNUSUAL_DURATION_MIN_DAYS = PARAMETER_BOUNDS.durationDays.min;
+const UNUSUAL_DURATION_MAX_DAYS = PARAMETER_BOUNDS.durationDays.max;
+const UNUSUAL_AMOUNT_MIN = PARAMETER_BOUNDS.amount.min;
+const UNUSUAL_AMOUNT_MAX = PARAMETER_BOUNDS.amount.max;
 
 function checkWarnings(data: ValidatedCommitmentDraft): ValidationWarning[] {
   const warnings: ValidationWarning[] = [];

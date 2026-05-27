@@ -12,6 +12,7 @@ vi.mock("@/lib/backend/requireAuth", () => ({
 
 vi.mock("@/lib/backend/rateLimit", () => ({
   checkRateLimit: vi.fn(),
+  getRateLimitWindowSeconds: vi.fn(() => 60),
 }));
 
 vi.mock("@/lib/backend/services/contracts", () => ({

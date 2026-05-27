@@ -12,10 +12,12 @@ import { EarlyExitRequestBodySchema } from '@/lib/schemas/apiContracts';
 import { earlyExitCommitmentOnChain, getCommitmentFromChain } from '@/lib/backend/services/contracts';
 
 const COMMITMENT_EARLY_EXIT_CORS_POLICY = {
-  POST: { access: 'first-party' },
+  POST: { access: "first-party" },
 } satisfies CorsRoutePolicy;
 
-export const OPTIONS = createCorsOptionsHandler(COMMITMENT_EARLY_EXIT_CORS_POLICY);
+export const OPTIONS = createCorsOptionsHandler(
+  COMMITMENT_EARLY_EXIT_CORS_POLICY,
+);
 
 function rethrowContractError(error: unknown): never {
   if (error instanceof BackendError) {
@@ -120,5 +122,5 @@ export const POST = withApiHandler(async (req: NextRequest, { params }, correlat
   }
 }, { cors: COMMITMENT_EARLY_EXIT_CORS_POLICY });
 
-const _405 = methodNotAllowed(['POST']);
+const _405 = methodNotAllowed(["POST"]);
 export { _405 as GET, _405 as PUT, _405 as PATCH, _405 as DELETE };

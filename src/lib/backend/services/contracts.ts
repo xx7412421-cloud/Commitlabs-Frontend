@@ -103,6 +103,7 @@ export interface EarlyExitCommitmentOnChainResult {
   finalStatus: string;
   txHash?: string;
   reference?: string;
+  contractVersion?: string;
 }
 
 type ContractCallMode = "read" | "write";
@@ -940,54 +941,55 @@ export async function settleCommitmentOnChain(
 }
 
 export async function earlyExitCommitmentOnChain(
-  params: EarlyExitCommitmentOnChainParams
+  params: EarlyExitCommitmentOnChainParams,
 ): Promise<EarlyExitCommitmentOnChainResult> {
   try {
     if (!params.commitmentId) {
       throw new BackendError({
-        code: 'BAD_REQUEST',
-        message: 'Missing commitment id for early exit.',
-        status: 400
+        code: "BAD_REQUEST",
+        message: "Missing commitment id for early exit.",
+        status: 400,
       });
     }
 
     const commitment = await getCommitmentFromChain(params.commitmentId);
 
-    if (commitment.status === 'SETTLED') {
+    if (commitment.status === "SETTLED") {
       throw new BackendError({
-        code: 'CONFLICT',
-        message: 'Commitment has already been settled and cannot be exited early.',
-        status: 409
+        code: "CONFLICT",
+        message:
+          "Commitment has already been settled and cannot be exited early.",
+        status: 409,
       });
     }
 
-    if (commitment.status === 'EARLY_EXIT') {
+    if (commitment.status === "EARLY_EXIT") {
       throw new BackendError({
-        code: 'CONFLICT',
-        message: 'Commitment has already been exited early.',
-        status: 409
+        code: "CONFLICT",
+        message: "Commitment has already been exited early.",
+        status: 409,
       });
     }
 
-    if (commitment.status === 'VIOLATED') {
+    if (commitment.status === "VIOLATED") {
       throw new BackendError({
-        code: 'CONFLICT',
-        message: 'Commitment has been violated and cannot be exited early.',
-        status: 409
+        code: "CONFLICT",
+        message: "Commitment has been violated and cannot be exited early.",
+        status: 409,
       });
     }
 
     const invocation = await invokeContractMethod(
-      getContractId('commitmentCore'),
-      'early_exit_commitment',
+      getContractId("commitmentCore"),
+      "early_exit_commitment",
       [params.commitmentId, params.callerAddress ?? commitment.ownerAddress],
-      'write'
+      "write",
     );
 
     const result = asRecord(invocation.value);
-    const exitAmount = asString(result.exitAmount, '0');
-    const penaltyAmount = asString(result.penaltyAmount, '0');
-    const finalStatus = asString(result.finalStatus, 'EARLY_EXIT');
+    const exitAmount = asString(result.exitAmount, "0");
+    const penaltyAmount = asString(result.penaltyAmount, "0");
+    const finalStatus = asString(result.finalStatus, "EARLY_EXIT");
 
     return {
       exitAmount,
@@ -995,14 +997,17 @@ export async function earlyExitCommitmentOnChain(
       finalStatus,
       txHash: invocation.txHash,
       contractVersion: invocation.version,
-      reference: invocation.txHash ? undefined : `TODO_CHAIN_CALL_EARLY_EXIT`
+      reference: invocation.txHash ? undefined : `TODO_CHAIN_CALL_EARLY_EXIT`,
     };
   } catch (error) {
     throw normalizeContractError(error, {
-      code: 'BLOCKCHAIN_CALL_FAILED',
-      message: 'Unable to exit commitment early on chain.',
+      code: "BLOCKCHAIN_CALL_FAILED",
+      message: "Unable to exit commitment early on chain.",
       status: 502,
-      details: { method: 'early_exit_commitment', commitmentId: params.commitmentId }
+      details: {
+        method: "early_exit_commitment",
+        commitmentId: params.commitmentId,
+      },
     });
   }
 }

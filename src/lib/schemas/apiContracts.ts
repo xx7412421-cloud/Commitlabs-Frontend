@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 // ─── Envelope schemas ─────────────────────────────────────────────────────────
 
@@ -109,7 +109,9 @@ export const CommitmentDetailSchema = z.object({
   contractVersion: z.string().optional(),
 });
 
-export const CommitmentDetailResponseSchema = OkBodySchema(CommitmentDetailSchema);
+export const CommitmentDetailResponseSchema = OkBodySchema(
+  CommitmentDetailSchema,
+);
 
 export const MarketplaceListingCardSchema = z.object({
   id: z.string(),
@@ -151,7 +153,7 @@ export const AttestationPostResponseSchema = OkBodySchema(
 
 /**
  * Request body schema for POST /api/commitments/[id]/early-exit
- * 
+ *
  * Validates:
  * - reason: Human-readable reason for early exit (required, max 500 chars)
  * - callerAddress: Stellar public key of the commitment owner (required, must match session)
@@ -166,7 +168,10 @@ export const EarlyExitRequestBodySchema = z.object({
     .string()
     .trim()
     .min(1, "Caller address is required")
-    .regex(/^[A-Z0-9]{56}$/, "Caller address must be a valid Stellar public key"),
+    .regex(
+      /^[A-Z0-9]{56}$/,
+      "Caller address must be a valid Stellar public key",
+    ),
 });
 
 export type EarlyExitRequestBody = z.infer<typeof EarlyExitRequestBodySchema>;

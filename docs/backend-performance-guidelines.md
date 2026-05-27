@@ -38,6 +38,56 @@ _Note: Latency is measured as Time to First Byte (TTFB) + Content Download Time 
 - **Exponential Backoff**: Implement exponential backoff for polling when the state hasn't changed or errors occur.
 - **E-Tags / Last-Modified**: Use conditional requests (If-None-Match, If-Modified-Since) to avoid downloading data that hasn't changed.
 
+## 4.1 ETag Implementation for List Endpoints
+
+CommitLabs implements ETag-based caching for read-heavy list endpoints to reduce bandwidth and re-render costs. This applies to:
+- `/api/commitments` (GET)
+- `/api/marketplace/listings` (GET)
+- `/api/attestations` (GET)
+
+### How It Works
+
+1. **ETag Generation**: A stable SHA-256 hash is computed from the serialized JSON response payload
+2. **Conditional Requests**: Clients send `If-None-Match` header with the cached ETag
+3. **304 Not Modified**: Server returns 304 status when ETag matches, avoiding full payload transmission
+4. **Cache Headers**: Responses include `Cache-Control: public, max-age=0, must-revalidate` and `ETag` headers
+
+### Implementation Details
+
+- **Location**: `src/lib/backend/withApiHandler.ts` (shared handler)
+- **ETag Utilities**: `src/lib/backend/etag.ts` (generateETag, etagMatches)
+- **Envelope Stability**: ETags are computed on the success envelope shape to ensure consistency across requests
+- **Automatic**: Enable with `enableETag: true` option in withApiHandler
+
+### Example Client Usage
+
+```javascript
+// First request
+const response = await fetch('/api/commitments?ownerAddress=G...');
+const etag = response.headers.get('etag');
+const data = await response.json();
+
+// Subsequent request with cached ETag
+const cachedResponse = await fetch('/api/commitments?ownerAddress=G...', {
+  headers: { 'If-None-Match': etag }
+});
+
+if (cachedResponse.status === 304) {
+  // Use cached data, no re-render needed
+  console.log('Data unchanged, using cache');
+} else {
+  // Data changed, update UI
+  const newData = await cachedResponse.json();
+}
+```
+
+### Performance Impact
+
+- **Bandwidth Reduction**: 304 responses eliminate payload transmission for unchanged data
+- **Re-render Prevention**: Clients can skip UI updates when data hasn't changed
+- **Polling Optimization**: Enables efficient polling at recommended frequencies (30-60s for dashboards)
+- **Typical Savings**: 95%+ bandwidth reduction for unchanged data (304 response ~200 bytes vs full payload)
+
 ## 4. Implementation Examples
 
 ### REST API Example (Node.js/Express)
@@ -101,7 +151,46 @@ All services must emit metrics to be monitored by the observability platform (e.
 - **Stress Testing**: Determine the breaking point of the system by increasing load until failure.
 - **Automated Checks**: Integrate performance tests into the CI/CD pipeline. Fails build if latency thresholds are exceeded.
 
-## 7. Escalation Procedures
+## 7. Soroban RPC Timeout Policy
+
+All Soroban RPC interactions in `src/lib/backend/services/contracts.ts` are
+wrapped with an `AbortController`-backed per-call timeout.
+
+### Configuring the timeout
+
+Set `SOROBAN_RPC_TIMEOUT_MS` in your environment (see `.env.example`).
+If unset the default is **30 000 ms (30 s)**.
+
+```env
+# Increase for slow testnets, decrease for strict latency budgets
+SOROBAN_RPC_TIMEOUT_MS=30000
+```
+
+### Timeout behaviour
+
+| Scenario | HTTP status | `retryable` | Notes |
+| :--- | :--- | :--- | :--- |
+| `getAccount` / `simulateTransaction` hang | `504 GATEWAY_TIMEOUT` | `true` | Safe to retry — no state was mutated. |
+| `prepareTransaction` hang | `504 GATEWAY_TIMEOUT` | `true` | Safe to retry — tx was not broadcast. |
+| `sendTransaction` hang | `504 GATEWAY_TIMEOUT` | `true` | **Outcome unknown** — the tx may have been broadcast. Surface the error details to the user. |
+| `waitForTransactionResult` hang | `504 GATEWAY_TIMEOUT` | `true` | Tx was broadcast; include `txHash` from error details so users can verify on-chain. |
+
+### Write-call semantics
+
+When a timeout fires after `sendTransaction` has already submitted the
+transaction, the `GATEWAY_TIMEOUT` error details will include the `txHash`.
+API routes must propagate this hash to the client so the user can verify the
+final outcome on-chain independently.
+
+### Implementation detail
+
+A single `AbortController` is created per `invokeContractMethod` invocation.
+`setTimeout(controller.abort, timeoutMs)` schedules the abort, and every
+awaited RPC promise is wrapped in `abortableRpc()` which races the real call
+against the abort signal.  The timer is always cleared in a `finally` block so
+no leaks occur on the success path.
+
+## 8. Escalation Procedures
 
 If a service consistently violates performance guidelines:
 

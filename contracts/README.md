@@ -59,6 +59,42 @@ create_commitment ──► fund_escrow ──► release            (matured: p
 | `get_commitment(commitment_id)` | Read a single commitment record. |
 | `get_owner_commitments(owner)` | List commitment ids owned by an address. |
 
+### `early_exit_commitment` entrypoint details
+
+#### ABI Signature
+```rust
+pub fn early_exit_commitment(
+    env: Env,
+    commitment_id: u64,
+    caller: Address,
+) -> Result<EarlyExitResult, Error>
+```
+
+#### Response Struct Format (`EarlyExitResult`)
+When returned from the contract, the result is serialized as a map/object containing:
+* **`exitAmount`** (`i128`): The final amount returned to the commitment owner (principal minus penalty).
+* **`penaltyAmount`** (`i128`): The penalty fee amount deducted and paid to the fee recipient.
+* **`finalStatus`** (`EscrowStatus`): The final status of the commitment (always `Refunded`).
+
+#### Field Descriptions
+| Field | Type | Description |
+| --- | --- | --- |
+| `exitAmount` | `i128` | The absolute quantity of tokens transferred back to the commitment owner. |
+| `penaltyAmount` | `i128` | The absolute quantity of tokens transferred to the fee recipient as an early-exit penalty. |
+| `finalStatus` | `EscrowStatus` | The post-exit state of the escrow commitment, represented as `Refunded`. |
+
+#### Example Usage
+An invocator (e.g., the backend service layer) calls this entrypoint and retrieves the structured receipt:
+```typescript
+const result = await invokeContractMethod(
+  contractId,
+  "early_exit_commitment",
+  [commitmentId, ownerAddress],
+  "write"
+);
+console.log(`Exit Amount: ${result.exitAmount}, Penalty: ${result.penaltyAmount}`);
+```
+
 ### Risk profiles & penalties
 
 `RiskProfile` is `Safe | Balanced | Aggressive`, matching the frontend

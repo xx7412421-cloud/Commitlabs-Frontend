@@ -19,6 +19,7 @@ export type ChainCommitmentStatus =
   | "SETTLED"
   | "VIOLATED"
   | "EARLY_EXIT"
+  | "DISPUTED"
   | "UNKNOWN";
 
 export interface CreateCommitmentOnChainParams {
@@ -80,6 +81,37 @@ export interface SettleCommitmentOnChainResult {
   txHash?: string;
   reference?: string;
   finalStatus: string;
+}
+
+export interface DisputeOnChainParams {
+  commitmentId: string;
+  reason: string;
+  evidence?: string;
+  callerAddress: string;
+}
+
+export interface DisputeOnChainResult {
+  commitmentId: string;
+  disputeId: string;
+  status: string;
+  txHash?: string;
+  disputedAt: string;
+}
+
+export interface ResolveDisputeOnChainParams {
+  commitmentId: string;
+  resolution: "resolved_in_favor_of_owner" | "resolved_in_favor_of_counterparty" | "dismissed";
+  notes?: string;
+  resolverAddress: string;
+}
+
+export interface ResolveDisputeOnChainResult {
+  commitmentId: string;
+  disputeId: string;
+  resolution: string;
+  finalStatus: string;
+  txHash?: string;
+  resolvedAt: string;
 }
 
 type ContractCallMode = 'read' | 'write';
@@ -163,7 +195,8 @@ function normalizeStatus(value: unknown): ChainCommitmentStatus {
     raw === "ACTIVE" ||
     raw === "SETTLED" ||
     raw === "VIOLATED" ||
-    raw === "EARLY_EXIT"
+    raw === "EARLY_EXIT" ||
+    raw === "DISPUTED"
   ) {
     return raw;
   }
@@ -731,6 +764,139 @@ export async function settleCommitmentOnChain(
       status: 502,
       details: {
         method: "settle_commitment",
+        commitmentId: params.commitmentId,
+      },
+    });
+  }
+}
+
+export async function openDisputeOnChain(
+  params: DisputeOnChainParams,
+): Promise<DisputeOnChainResult> {
+  try {
+    if (!params.commitmentId) {
+      throw new BackendError({
+        code: "BAD_REQUEST",
+        message: "Missing commitment id for dispute.",
+        status: 400,
+      });
+    }
+
+    const commitment = await getCommitmentFromChain(params.commitmentId);
+
+    if (commitment.status === "SETTLED" || commitment.status === "EARLY_EXIT") {
+      throw new BackendError({
+        code: "CONFLICT",
+        message: "Cannot dispute a commitment that is already settled or exited.",
+        status: 409,
+      });
+    }
+
+    if (commitment.status === "DISPUTED") {
+      throw new BackendError({
+        code: "CONFLICT",
+        message: "Commitment is already in dispute.",
+        status: 409,
+      });
+    }
+
+    const invocation = await invokeContractMethod(
+      getContractId("commitmentCore"),
+      "dispute",
+      [params.commitmentId, params.callerAddress, params.reason, params.evidence ?? ""],
+      "write",
+    );
+
+    const result = asRecord(invocation.value);
+    const disputeId = asString(result.disputeId ?? result.id);
+    const status = asString(result.status, "DISPUTED");
+
+    // Status changed — invalidate detail and owner list.
+    await cache.delete(CacheKey.commitment(params.commitmentId));
+    if (commitment.ownerAddress) {
+      await cache.delete(CacheKey.userCommitments(commitment.ownerAddress));
+    }
+    logInfo(undefined, "[cache] invalidated commitment after dispute", {
+      commitmentId: params.commitmentId,
+    });
+
+    return {
+      commitmentId: params.commitmentId,
+      disputeId: disputeId || `dsp-${params.commitmentId}`,
+      status,
+      txHash: invocation.txHash,
+      disputedAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    throw normalizeContractError(error, {
+      code: "BLOCKCHAIN_CALL_FAILED",
+      message: "Unable to open dispute on chain.",
+      status: 502,
+      details: {
+        method: "dispute",
+        commitmentId: params.commitmentId,
+      },
+    });
+  }
+}
+
+export async function resolveDisputeOnChain(
+  params: ResolveDisputeOnChainParams,
+): Promise<ResolveDisputeOnChainResult> {
+  try {
+    if (!params.commitmentId) {
+      throw new BackendError({
+        code: "BAD_REQUEST",
+        message: "Missing commitment id for dispute resolution.",
+        status: 400,
+      });
+    }
+
+    const commitment = await getCommitmentFromChain(params.commitmentId);
+
+    if (commitment.status !== "DISPUTED") {
+      throw new BackendError({
+        code: "CONFLICT",
+        message: "Can only resolve a commitment that is currently in dispute.",
+        status: 409,
+      });
+    }
+
+    const invocation = await invokeContractMethod(
+      getContractId("commitmentCore"),
+      "resolve_dispute",
+      [params.commitmentId, params.resolution, params.notes ?? ""],
+      "write",
+    );
+
+    const result = asRecord(invocation.value);
+    const disputeId = asString(result.disputeId ?? result.id);
+    const finalStatus = asString(result.finalStatus, "ACTIVE");
+
+    // Status changed — invalidate detail and owner list.
+    await cache.delete(CacheKey.commitment(params.commitmentId));
+    if (commitment.ownerAddress) {
+      await cache.delete(CacheKey.userCommitments(commitment.ownerAddress));
+    }
+    logInfo(undefined, "[cache] invalidated commitment after dispute resolution", {
+      commitmentId: params.commitmentId,
+    });
+
+    return {
+      commitmentId: params.commitmentId,
+      disputeId: disputeId || `dsp-${params.commitmentId}`,
+      resolution: params.resolution,
+      finalStatus,
+      txHash: invocation.txHash,
+      resolvedAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    throw normalizeContractError(error, {
+      code: "BLOCKCHAIN_CALL_FAILED",
+      message: "Unable to resolve dispute on chain.",
+      status: 502,
+      details: {
+        method: "resolve_dispute",
         commitmentId: params.commitmentId,
       },
     });

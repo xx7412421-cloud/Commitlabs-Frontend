@@ -41,14 +41,14 @@ pub enum DataKey {
     Dispute(u64),
     /// Default penalty in basis points for each RiskProfile.
     DefaultPenalty(RiskProfile),
-    /// Contract paused flag; true halts write operations.
+    /// Contract pause flag used for emergency write halts.
     Paused,
-    /// Accumulated yield pool balance available to pay matured commitments.
+    /// On-chain yield pool balance used to pay matured commitment yield.
     YieldPool,
-    /// Attestation history for a commitment, keyed by commitment id.
+    /// Historical attestation records keyed by commitment id.
     Attestations(u64),
-    /// Minimum compliance score threshold; scores below this auto-violate a funded commitment.
-    ViolationThreshold,
+    /// Configurable penalty-free grace period before maturity, in seconds.
+    GracePeriodSeconds,
 }
 
 /// Risk profile chosen at creation time. Determines the early-exit penalty
@@ -111,7 +111,7 @@ pub struct DisputeRecord {
     pub disputed_by: Address,
 }
 
-/// A single compliance attestation entry appended to a commitment's history.
+/// Historical compliance attestation stored against a commitment.
 #[contracttype]
 #[derive(Clone)]
 pub struct AttestationRecord {
@@ -253,6 +253,9 @@ impl EscrowContract {
         env.storage()
             .instance()
             .set(&DataKey::DefaultPenalty(RiskProfile::Aggressive), &aggressive_default_penalty_bps);
+        env.storage()
+            .instance()
+            .set(&DataKey::GracePeriodSeconds, &0u64);
 
         Ok(())
     }
@@ -992,6 +995,26 @@ impl EscrowContract {
             .ok_or(Error::NotInitialized)
     }
 
+    /// Admin-only setter for the penalty-free grace period before maturity.
+    /// If the commitment is refunded within the configured window before
+    /// maturity, the early-exit penalty is waived.
+    pub fn set_grace_period(env: Env, admin: Address, grace_period_seconds: u64) -> Result<(), Error> {
+        Self::require_init(&env)?;
+        admin.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::GracePeriodSeconds, &grace_period_seconds);
+        env.events()
+            .publish((Symbol::new(&env, "set_grace_period"), admin), (grace_period_seconds,));
+        Ok(())
+    }
+
+    /// Returns the currently configured penalty-free grace period in seconds.
+    pub fn get_grace_period(env: Env) -> Result<u64, Error> {
+        Self::require_init(&env)?;
+        Ok(Self::grace_period_seconds(&env))
+    }
+
     // ── Internal helpers ────────────────────────────────────────────────────
 
     fn execute_refund(
@@ -1005,11 +1028,15 @@ impl EscrowContract {
             return Err(Error::InvalidState);
         }
 
-        let penalty_mul = c
-            .amount
-            .checked_mul(c.penalty_bps as i128)
-            .ok_or(Error::InvalidAmount)?;
-        let penalty = penalty_mul / MAX_PENALTY_BPS as i128;
+        let penalty = if Self::is_within_grace_period(env, &c) {
+            0
+        } else {
+            let penalty_mul = c
+                .amount
+                .checked_mul(c.penalty_bps as i128)
+                .ok_or(Error::InvalidAmount)?;
+            penalty_mul / MAX_PENALTY_BPS as i128
+        };
         let refund_amount = c
             .amount
             .checked_sub(penalty)
@@ -1064,6 +1091,23 @@ impl EscrowContract {
         let refund_amount = amount.checked_sub(penalty).ok_or(Error::InvalidAmount)?;
 
         Ok((penalty, refund_amount))
+    }
+
+    fn grace_period_seconds(env: &Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::GracePeriodSeconds)
+            .unwrap_or(0)
+    }
+
+    fn is_within_grace_period(env: &Env, c: &Commitment) -> bool {
+        let now = env.ledger().timestamp();
+        let grace = Self::grace_period_seconds(env);
+        if grace == 0 || now >= c.maturity {
+            return false;
+        }
+        let threshold = c.maturity.saturating_sub(grace);
+        now >= threshold
     }
 
     fn next_id(env: &Env) -> u64 {

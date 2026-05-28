@@ -38,10 +38,12 @@ fn unauthorized_cannot_rotate_admin_or_fee_recipient() {
 
 use super::*;
 use soroban_sdk::{
-    testutils::{Address as _, Ledger as _},
+    testutils::{Address as _, Events, Ledger as _},
     token::{StellarAssetClient, TokenClient},
     Address, Bytes, BytesN, Env, String,
 };
+
+// ── Test fixture ─────────────────────────────────────────────────────────────
 
 /// Spins up a test environment with a Stellar Asset Contract token and a
 /// deployed, initialized escrow contract. Returns the pieces tests need.
@@ -53,6 +55,7 @@ struct Fixture<'a> {
     admin: Address,
     fee_recipient: Address,
     asset: Address,
+    contract_id: Address,
 }
 
 fn setup<'a>() -> Fixture<'a> {
@@ -94,12 +97,62 @@ fn setup<'a>() -> Fixture<'a> {
         admin,
         fee_recipient,
         asset,
+        contract_id,
     }
 }
 
 fn fund_owner(f: &Fixture, owner: &Address, amount: i128) {
     f.token_admin.mint(owner, &amount);
 }
+
+// ── Event assertion helper ────────────────────────────────────────────────────
+
+/// Asserts that the escrow contract emitted exactly one event whose first topic
+/// matches `event_name` and whose data converts to `expected_data`.
+///
+/// Soroban's `env.events().all()` returns a `Vec<(Address, Vec<Val>, Val)>`
+/// where each entry is `(contract_id, topics, data)`.  We filter to events
+/// emitted by the escrow contract and whose first topic is the expected symbol,
+/// then compare the data payload.
+///
+/// # Panics
+/// Panics with a descriptive message if no matching event is found or if the
+/// data does not match.
+fn assert_event<D: IntoVal<Env, Val>>(
+    env: &Env,
+    contract_id: &Address,
+    event_name: &str,
+    expected_data: D,
+) {
+    let all = env.events().all();
+    let sym = Symbol::new(env, event_name);
+    let expected_val: Val = expected_data.into_val(env);
+
+    let found = all.iter().any(|(id, topics, data)| {
+        if &id != contract_id {
+            return false;
+        }
+        // topics is soroban_sdk::Vec<Val>; first element is the Symbol
+        if topics.len() == 0 {
+            return false;
+        }
+        let first_val = topics.get(0).unwrap();
+        let first_topic = Symbol::try_from_val(env, &first_val)
+            .unwrap_or_else(|_| Symbol::new(env, "__none__"));
+        if first_topic != sym {
+            return false;
+        }
+        data == expected_val
+    });
+
+    assert!(
+        found,
+        "expected event '{}' with matching data not found in emitted events",
+        event_name
+    );
+}
+
+// ── Existing lifecycle tests (unchanged) ─────────────────────────────────────
 
 #[test]
 fn initialize_is_one_time() {

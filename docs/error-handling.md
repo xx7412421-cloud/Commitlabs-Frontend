@@ -349,24 +349,17 @@ async function apiRequest(url: string, init?: RequestInit) {
 
 ---
 
-## Settlement Ineligible Reasons
+## Transaction Error Recovery Mapping
 
-`SettlementModal` renders settlement failures from `POST /api/commitments/[id]/settle`
-as structured, accessible remediation states. The primary action is always
-`Return to dashboard`, wired to `onReturnToDashboard`. A secondary link returns
-the user to `/commitments/[id]` so they can inspect the source commitment state.
+`src/app/transaction-error/page.tsx` maps backend-normalized chain errors into three user-facing recovery categories. The page keeps the shared `ErrorLayout` and `ErrorButton` shell, focuses the `<h1>` on load, and always provides both a `Try Again` path and a `Go to Dashboard` path.
 
-| Settle response reason | UI category | Visual treatment | Remediation CTA |
-|------------------------|-------------|------------------|-----------------|
-| `Commitment has not matured yet and cannot be settled.` | Not matured | Temporary blocker; includes text that settlement can be retried later | `View maturity details` |
-| `Commitment has already been settled` / `Commitment has already been settled.` | Already settled | Terminal state; includes text that settlement cannot be retried for this state | `View settlement details` |
-| `Commitment has been violated and cannot be settled` | Disputed | Terminal state; explains that a dispute or violation prevents settlement | `Review dispute details` |
-| `Commitment has already been exited early` | Early exit | Terminal state; explains that the commitment is already closed | `Review exit details` |
-| Unknown or missing reason text | Unknown | Review-required state; avoids guessing at the cause | `Review commitment details` |
+| UI category | Backend codes | Recovery behavior |
+|-------------|---------------|-------------------|
+| `rejected` | `VALIDATION_ERROR`, `BAD_REQUEST`, `UNPROCESSABLE_ENTITY`, `CONFLICT`, `SIGNATURE_INVALID`, `USER_REJECTED` | Explain that the transaction was not accepted, prompt the user to review wallet approval, parameters, and current commitment state, then try again. |
+| `timed-out` | `GATEWAY_TIMEOUT`, `RPC_TIMEOUT`, `BLOCKCHAIN_UNAVAILABLE`, `SERVICE_UNAVAILABLE` | Treat the transaction outcome as unknown. If a hash is available, point the user to Stellar Expert before retrying so the same signed transaction is not resubmitted blindly. |
+| `failed` | `BLOCKCHAIN_CALL_FAILED`, `BAD_GATEWAY`, `INTERNAL_ERROR`, unknown codes | Explain that execution or upstream chain handling failed, show the normalized code, and let the user retry after checking balance, fees, and contract state. |
 
-Reason text must be rendered in the modal body and announced through the alert
-region. Do not rely on color alone: temporary and terminal states also include
-explicit labels such as `Temporary blocker` and `Terminal state`.
+The backend source of truth remains `src/lib/backend/errorCodes.ts` and the Soroban normalization in `src/lib/backend/services/contracts.ts`. When adding a new normalized chain error, update this table and the page mapping together.
 
 ---
 

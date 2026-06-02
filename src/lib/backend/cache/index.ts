@@ -29,7 +29,7 @@ export const CacheKey = {
     `commitlabs:user-commitments:${ownerAddress}`,
   marketplaceListings: (queryHash: string) =>
     `commitlabs:marketplace:listings:${queryHash}`,
-  marketplaceStats: () => `commitlabs:marketplace:stats`,
+  marketplaceStats: () => "commitlabs:marketplace:stats",
   commitmentSearch: (queryHash: string) =>
     `commitlabs:commitment-search:${queryHash}`,
   marketplaceStats: () => "commitlabs:marketplace:stats",

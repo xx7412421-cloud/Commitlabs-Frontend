@@ -15,6 +15,51 @@ export interface AuditLogEntry {
   details: Record<string, unknown>;
 }
 
+const auditLogStore: AuditLogEntry[] = [];
+
+export function recordAuditEvent(entry: Omit<AuditLogEntry, 'id' | 'timestamp'>): AuditLogEntry {
+    const logEntry: AuditLogEntry = {
+        id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        ...entry,
+    };
+
+    auditLogStore.push(logEntry);
+
+    console.log(JSON.stringify({
+        event: 'AuditLog',
+        ...logEntry,
+    }));
+
+    return logEntry;
+}
+
+export function getAuditLog(commitmentId: string): AuditLogEntry[] {
+    return auditLogStore.filter(entry => entry.commitmentId === commitmentId);
+}
+
+export function clearAuditLog(): void {
+  auditLogStore.length = 0;
+}
+/**
+ * Audit Event Store
+ *
+ * Provides a typed schema for audit events and a pluggable store interface.
+ *
+ * Storage strategy:
+ *   - Development / test: in-memory ring buffer (last MAX_BUFFER_SIZE events).
+ *   - Production: swap `activeStore` for a durable backend (Postgres, Redis Streams,
+ *     Datadog Logs, etc.) by implementing the `AuditStore` interface.
+ *
+ * Sensitive fields (ownerAddress, verifiedBy, callerAddress, ip) are redacted
+ * before events leave this module so that callers never need to remember to do it.
+ *
+ * Feature flag: COMMITLABS_FEATURE_AUDIT_LOG (env var, default off).
+ * When disabled, `appendAuditEvent` is a no-op and `getRecentAuditEvents` returns [].
+ */
+
+// ─── Schema ───────────────────────────────────────────────────────────────────
+
 export type AuditEventCategory =
   | "commitment"
   | "attestation"

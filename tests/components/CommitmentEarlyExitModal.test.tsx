@@ -194,6 +194,39 @@ describe('CommitmentEarlyExitModal', () => {
       
       expect(onConfirm).toHaveBeenCalled();
     });
+
+    it('keeps confirmation disabled while live preview is loading', () => {
+      const onConfirm = vi.fn();
+
+      render(
+        <CommitmentEarlyExitModal
+          {...defaultProps}
+          hasAcknowledged={true}
+          isPreviewLoading={true}
+          onConfirm={onConfirm}
+        />
+      );
+
+      fireEvent.change(screen.getByPlaceholderText(/Enter commitment ID exactly/i), {
+        target: { value: 'CMT-TEST123' },
+      });
+
+      expect(screen.getByRole('status')).toHaveTextContent('Fetching live early-exit preview');
+      expect(screen.getByRole('button', { name: /Confirm Early Exit/i })).toBeDisabled();
+    });
+
+    it('shows a non-blocking live preview error message', () => {
+      render(
+        <CommitmentEarlyExitModal
+          {...defaultProps}
+          previewError="Live preview failed with status 503"
+        />
+      );
+
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Could not refresh the live preview. Showing estimated local figures instead. Live preview failed with status 503'
+      );
+    });
   });
 
   describe('penalty preview calculations per risk tier', () => {
@@ -249,6 +282,22 @@ describe('CommitmentEarlyExitModal', () => {
       expect(screen.getByLabelText('Penalty rate: 5 percent')).toHaveTextContent('5%');
       expect(screen.getByLabelText('Penalty deduction: minus 12,500 Stellar Lumens')).toHaveTextContent('-12,500 XLM');
       expect(screen.getByLabelText('Net refund amount: 237,500 Stellar Lumens')).toHaveTextContent('237,500 XLM');
+    });
+
+    it('renders a penalty-free grace-period preview when the live preview returns 0%', () => {
+      render(
+        <CommitmentEarlyExitModal
+          {...defaultProps}
+          originalAmount="50,000 XLM"
+          penaltyPercent="0%"
+          penaltyAmount="0 XLM"
+          netReceiveAmount="50,000 XLM"
+        />
+      );
+
+      expect(screen.getByLabelText('Penalty rate: 0 percent')).toHaveTextContent('0%');
+      expect(screen.getByLabelText('Penalty deduction: minus 0 Stellar Lumens')).toHaveTextContent('-0 XLM');
+      expect(screen.getByLabelText('Net refund amount: 50,000 Stellar Lumens')).toHaveTextContent('50,000 XLM');
     });
   });
 });

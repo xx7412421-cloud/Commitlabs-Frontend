@@ -9,6 +9,10 @@ import MyCommitmentsGrid from '@/components/MyCommitmentsGrid'
 import MyCommitmentsGridSkeleton from '@/components/MyCommitmentsGridSkeleton'
 import CommitmentEarlyExitModal from '@/components/CommitmentEarlyExitModal/CommitmentEarlyExitModal'
 import ExportCommitmentsModal from '@/components/export/ExportCommitmentsModal'
+import {
+  EarlyExitPreviewSummary,
+  fetchEarlyExitPreviewSummary,
+} from '@/components/CommitmentEarlyExitModal/earlyExitPreview'
 import { useWallet } from '@/hooks/useWallet'
 import { Commitment, CommitmentStats } from '@/types/commitment'
 import { listCommitments } from '@/lib/backend/mocks/contracts'
@@ -131,6 +135,12 @@ function getEarlyExitValues(originalAmount: string, asset: string, penaltyPercen
   }
 }
 
+type EarlyExitPreviewState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'success'; summary: EarlyExitPreviewSummary }
+  | { status: 'error'; error: string }
+
 export default function MyCommitments() {
   const router = useRouter()
   const { address } = useWallet()
@@ -149,6 +159,7 @@ export default function MyCommitments() {
   const [isLoading, setIsLoading] = useState(true)
   const [protocolConstants, setProtocolConstants] = useState<ProtocolConstants | null>(null)
   const [, setIsLoadingConstants] = useState(true)
+  const [earlyExitPreview, setEarlyExitPreview] = useState<EarlyExitPreviewState>({ status: 'idle' })
 
   useEffect(() => {
     fetchProtocolConstants()
@@ -196,7 +207,9 @@ export default function MyCommitments() {
   }, [commitmentsList, searchQuery, statusFilter, typeFilter, sortBy])
 
   const commitmentForEarlyExit = commitmentsList.find((c) => c.id === earlyExitCommitmentId)
-  const earlyExitSummary = useMemo(() => {
+  const earlyExitPreviewCommitmentId = commitmentForEarlyExit?.id
+  const earlyExitPreviewAsset = commitmentForEarlyExit?.asset
+  const estimatedEarlyExitSummary = useMemo(() => {
     if (!commitmentForEarlyExit) return null
 
     let penaltyPercent = 10
@@ -221,6 +234,38 @@ export default function MyCommitments() {
       penaltyPercent
     )
   }, [commitmentForEarlyExit, protocolConstants])
+
+  useEffect(() => {
+    if (!earlyExitPreviewCommitmentId || !earlyExitPreviewAsset) {
+      setEarlyExitPreview({ status: 'idle' })
+      return
+    }
+
+    let ignore = false
+    setEarlyExitPreview({ status: 'loading' })
+
+    fetchEarlyExitPreviewSummary(earlyExitPreviewCommitmentId, earlyExitPreviewAsset)
+      .then((summary) => {
+        if (!ignore) setEarlyExitPreview({ status: 'success', summary })
+      })
+      .catch((error) => {
+        if (!ignore) {
+          setEarlyExitPreview({
+            status: 'error',
+            error: error instanceof Error ? error.message : 'Unable to refresh live preview',
+          })
+        }
+      })
+
+    return () => {
+      ignore = true
+    }
+  }, [earlyExitPreviewAsset, earlyExitPreviewCommitmentId])
+
+  const earlyExitSummary =
+    earlyExitPreview.status === 'success'
+      ? earlyExitPreview.summary
+      : estimatedEarlyExitSummary
 
   // Callbacks
   const openEarlyExitModal = useCallback((id: string) => {
@@ -326,6 +371,8 @@ export default function MyCommitments() {
           penaltyPercent={earlyExitSummary.penaltyPercent}
           penaltyAmount={earlyExitSummary.penaltyAmount}
           netReceiveAmount={earlyExitSummary.netReceiveAmount}
+          isPreviewLoading={earlyExitPreview.status === 'loading'}
+          previewError={earlyExitPreview.status === 'error' ? earlyExitPreview.error : null}
           hasAcknowledged={hasAcknowledged}
           onChangeAcknowledged={setHasAcknowledged}
           onCancel={closeEarlyExitModal}
